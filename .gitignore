@@ -1,4 +1,5 @@
 # Node modules
+
 /node_modules
 
 # Compilation output
@@ -18,3 +19,6 @@
 
 # Hardhat coverage reports
 /coverage
+
+# env files
+.env

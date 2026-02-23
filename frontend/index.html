@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Idle Hook — HookCanton Demo</title>
+        <link rel="stylesheet" href="styles.css" />
+      </head>
+      <body class="theme-light">
+        <main class="app">
+          <header class="topbar">
+            <div class="brand">Idle Hook — HookCanton Demo</div>
+            <div class="top-actions">
+              <button id="themeToggle" class="icon" title="Toggle theme">🌙</button>
+              <button id="connectBtn" class="primary">Connect Wallet</button>
+            </div>
+          </header>
+
+          <section class="grid">
+            <div class="col main">
+              <div class="card">
+                <h2>Start — Core Flow</h2>
+                <p class="muted">Connect your wallet, pick a token pair, enter the amount, and start optimization.</p>
+
+                <label title="Which pair will be used for the demo (educational only)">Token pair</label>
+                <select id="pair_select">
+                  <option value="">Select pair</option>
+                  <option value="USDC/ETH">USDC / WETH</option>
+                  <option value="DAI/ETH">DAI / WETH</option>
+                  <option value="USDC/USDT">USDC / USDT</option>
+                </select>
+
+                <label title="How much of the selected token you want to deposit">Deposit amount</label>
+                <div class="row input-group">
+                  <input id="deposit_amount" placeholder="0.00" inputmode="decimal" />
+                  <button id="maxBtn" class="ghost" title="Use your full balance">MAX</button>
+                </div>
+
+                <div class="row actions">
+                  <button id="startOptimization" class="primary large">Start Optimization</button>
+                  <button id="previewSwap" class="ghost">Preview Swap</button>
+                </div>
+                <div class="card" style="margin-top:12px;padding:10px">
+                  <label><input id="useLiveContract" type="checkbox" /> Use live contract (advanced)</label>
+                  <div id="liveContractFields" style="display:none;margin-top:8px">
+                    <label>Contract address (advanced)</label>
+                    <input id="live_contract_address" placeholder="0x..." />
+                    <label>PoolId (hex) — optional (advanced)</label>
+                    <input id="live_poolId" placeholder="0x..." />
+                    <div class="muted" style="font-size:12px;margin-top:6px">Advanced: enabling this will make the Start Optimization button call the deployed hook contract. Use only if you have the correct contract address and PoolId.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" id="edu_card_small">
+                <h3>Educational Demo</h3>
+                <p class="muted">Behind-the-scenes (simplified). Tooltips explain each item.</p>
+                <label title="Human-readable pool identifier — simplified for education">Pool</label>
+                <div id="edu_poolIdDisplay">—</div>
+
+                <label title="Plain summary of actions the hook will take">Planned actions</label>
+                <div id="edu_actionsDisplay">—</div>
+
+                <label title="Illustrative expected yield">Estimated yield</label>
+                <div id="edu_yieldDisplay">—</div>
+
+                <label style="margin-top:10px">Steps</label>
+                <ol id="edu_stepsList" class="muted" style="padding-left:18px"> 
+                  <li>Step 1: Not started</li>
+                </ol>
+                <div style="display:flex;gap:8px;margin-top:12px">
+                  <button id="edu_computePool" class="ghost">Compute Pool</button>
+                  <button id="edu_registerPosition" class="ghost">Register Position</button>
+                  <button id="edu_simulateSwap" class="ghost">Simulate Swap</button>
+                </div>
+              </div>
+            </div>
+
+            <aside class="col side">
+              <div class="card stats">
+                <h3>Overview</h3>
+                <div class="stat"><div class="label">Estimated APY</div><div id="estApy" class="value">—</div></div>
+                <div class="stat"><div class="label">Your balance</div><div id="yourBalance" class="value">—</div></div>
+                <div class="stat"><div class="label">Total liquidity</div><div id="totalLiquidity" class="value">—</div></div>
+                <div class="stat"><div class="label">Total yield (distributed)</div><div id="totalYield" class="value">—</div></div>
+              </div>
+
+              <div class="card">
+                <h3>Share & Analytics</h3>
+                <div class="row">
+                  <button id="shareTwitter" class="ghost">Share Twitter</button>
+                  <button id="shareLink" class="ghost">Copy Link</button>
+                </div>
+                <div style="margin-top:8px">
+                  <button id="analyticsBtn" class="ghost">Load Analytics</button>
+                </div>
+              </div>
+
+              <div class="card status-card">
+                <h3>Connection</h3>
+                <div id="statusBadge" class="muted">Not connected</div>
+                <div id="userLogs" class="logs" style="margin-top:8px;max-height:200px;overflow:auto;padding-top:6px">
+                  <div class="log-empty muted">Activity will appear here.</div>
+                </div>
+              </div>
+            </aside>
+          </section>
+
+          <footer class="footer">
+            <div>© HookCanton • Educational demo</div>
+          </footer>
+        </main>
+
+        <script type="module">
+          import * as Ethers from 'https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.min.js';
+          window.ethers = Ethers;
+        </script>
+        <script src="main.js"></script>
+      </body>
+    </html>
+          <label style="margin-top:12px">Step-by-step</label>
+          <ol id="edu_stepsList" class="muted" style="padding-left:18px"> 
+            <li>Step 1: Not started</li>
+          </ol>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="left">© Idle Protocol</div>
+        <div class="right">
+          <button id="analyticsBtn" class="ghost">Analytics</button>
+        </div>
+      </footer>
+    </main>
+
+    <script type="module">
+      import * as Ethers from 'https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.min.js';
+      window.ethers = Ethers;
+    </script>
+    <script src="main.js"></script>
+  </body>
+</html>

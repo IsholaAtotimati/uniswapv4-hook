@@ -33,9 +33,11 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
         uint128 liquidity;
         int24 lowerTick;
         int24 upperTick;
+        bool isIdle;
         uint256 vaultShares;
         uint256 accumulatedYield;
-        bool isIdle;
+        // For Aave accounting
+        uint256 aTokenPrincipal;
     }
 
     struct PoolConfig {
@@ -52,6 +54,8 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
 
     mapping(PoolId => mapping(address => PositionInfo)) public positions;
     mapping(PoolId => PoolConfig) public poolConfig;
+    // Track total principal deposited into Aave per pool for proportional yield allocation
+    mapping(PoolId => uint256) public totalATokenPrincipal;
 
     mapping(PoolId => address[]) private idleLPs;
     mapping(PoolId => mapping(address => bool)) private isIdleLP;
@@ -137,9 +141,13 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
             }
 
             config.lendingPool.deposit(config.asset, pos.liquidity, address(this), 0);
-            // store the deposited amount (repurposing vaultShares)
-            pos.vaultShares = pos.liquidity;
-            emit LiquidityMovedToVault(lp, pid, pos.liquidity, pos.vaultShares);
+            // store the deposited principal for per-position accounting
+            pos.aTokenPrincipal = pos.liquidity;
+            // update total principal for this pool
+            totalATokenPrincipal[pid] += pos.aTokenPrincipal;
+            // keep vaultShares empty for Aave
+            pos.vaultShares = 0;
+            emit LiquidityMovedToVault(lp, pid, pos.liquidity, pos.aTokenPrincipal);
         } else {
             // approve only if needed for ERC4626 vault
             if (token.allowance(address(this), address(config.vault)) < pos.liquidity) {
@@ -159,21 +167,25 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     PoolId pid,
     PoolKey calldata key
 ) internal {
-    if (pos.liquidity == 0) return; // ✅ ADD THI
-        if (pos.vaultShares == 0) return;
+        if (pos.liquidity == 0) return;
 
         PoolConfig memory config = poolConfig[pid];
 
         IERC20 token = IERC20(Currency.unwrap(key.currency0));
 
         if (config.useAave) {
-            // Aave flow: compute total assets using aToken balance
+            // Aave flow: compute interest (aToken balance - total principal for pool)
             if (address(config.aToken) == address(0)) return;
             uint256 totalAssets = config.aToken.balanceOf(address(this));
-            if (totalAssets == 0) return;
+            uint256 totalPrincipal = totalATokenPrincipal[pid];
+            if (totalAssets <= totalPrincipal || totalPrincipal == 0) return;
 
-            uint256 lpYield = (totalAssets * config.lpShareBP) / TOTAL_BP;
-            uint256 protocolYield = totalAssets - lpYield;
+            uint256 totalYield = totalAssets - totalPrincipal;
+            // allocate yield proportionally to this position's principal
+            if (pos.aTokenPrincipal == 0) return;
+
+            uint256 lpYield = (totalYield * pos.aTokenPrincipal) / totalPrincipal;
+            uint256 protocolYield = totalYield - lpYield;
 
             pos.accumulatedYield += lpYield;
 
@@ -184,13 +196,14 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
 
             emit YieldCollected(lp, pid, lpYield, protocolYield);
         } else {
-            // ERC4626 vault flow (existing behaviour)
+            // ERC4626 vault flow: compute only the accrued yield (assets - principal)
             if (address(config.vault) == address(0)) return;
             uint256 totalAssets = config.vault.previewWithdraw(pos.vaultShares);
-            if (totalAssets == 0) return;
+            if (totalAssets <= pos.liquidity) return;
 
-            uint256 lpYield = (totalAssets * config.lpShareBP) / TOTAL_BP;
-            uint256 protocolYield = totalAssets - lpYield;
+            uint256 totalYield = totalAssets - pos.liquidity;
+            uint256 lpYield = (totalYield * config.lpShareBP) / TOTAL_BP;
+            uint256 protocolYield = totalYield - lpYield;
 
             pos.accumulatedYield += lpYield;
 
@@ -206,12 +219,21 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
         PoolId pid = key.toId();
         PoolConfig memory config = poolConfig[pid];
 
-        if (pos.vaultShares == 0) return;
+        if (pos.vaultShares == 0 && pos.aTokenPrincipal == 0) return;
 
         if (config.useAave) {
             // withdraw the deposited principal back to this contract
-            config.lendingPool.withdraw(config.asset, pos.vaultShares, address(this));
-            pos.vaultShares = 0;
+            uint256 principal = pos.aTokenPrincipal;
+            if (principal > 0) {
+                // update accounting
+                if (totalATokenPrincipal[pid] >= principal) {
+                    totalATokenPrincipal[pid] -= principal;
+                } else {
+                    totalATokenPrincipal[pid] = 0;
+                }
+                pos.aTokenPrincipal = 0;
+                config.lendingPool.withdraw(config.asset, principal, address(this));
+            }
         } else {
             config.vault.withdraw(pos.vaultShares, address(this), address(this));
             pos.vaultShares = 0;
@@ -251,9 +273,10 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
             liquidity: liquidity,
             lowerTick: lower,
             upperTick: upper,
+            isIdle: false,
             vaultShares: 0,
             accumulatedYield: 0,
-            isIdle: false
+            aTokenPrincipal: 0
         });
 
         emit PositionRegistered(msg.sender, pid, liquidity);
@@ -262,12 +285,9 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     PositionInfo storage pos = positions[pid][msg.sender];
     require(pos.liquidity > 0, "No position");
 
-    // Only collect yield if LP has shares and vault is set
-    if (pos.isIdle && pos.vaultShares > 0) {
-        PoolConfig memory config = poolConfig[pid];
-        if (address(config.vault) != address(0)) {
-            _collectYield(pos, msg.sender, pid, key);
-        }
+    // Only collect yield if LP is idle and has funds in vault/Aave
+    if (pos.isIdle && (pos.vaultShares > 0 || pos.aTokenPrincipal > 0)) {
+        _collectYield(pos, msg.sender, pid, key);
     }
 
     // Remove from idleLPs safely if LP is marked idle
