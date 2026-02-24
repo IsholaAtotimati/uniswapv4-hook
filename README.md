@@ -123,7 +123,7 @@ npx hardhat compile
 npx hardhat node
 
 # Deploy contracts locally
-npx hardhat run scripts/deploy.js --network localhost
+npx hardhat run scripts/deploy-arbtrum.js --network localhost
 
 # Run all tests
 npx hardhat test
