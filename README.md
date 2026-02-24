@@ -146,8 +146,6 @@ Deployment to Arbitrum Sepolia
 # Deploy to Sepolia
 npx hardhat run scripts/deploy.js --network arbitrumSepolia
 
-(Ensure your hardhat.config.js has Arbitrum Sepolia RPC and private key configured.)
-
 Usage
 
 Register a position – LP registers liquidity and tick range.
