@@ -1,153 +1,174 @@
-IdleLiquidityHookEnterprise Documentation
+IdleLiquidityHookEnterprise
+
+A Uniswap v4 Hook for automatically managing idle liquidity and optimizing yield.
+
+Table of Contents
+
 Overview
 
-IdleLiquidityHookEnterprise is a smart contract for automated idle liquidity management in AMM pools. It allows LPs to:
+Problem
 
-Register positions with specific tick ranges.
+Solution
 
-Delegate idle liquidity to external vaults for yield.
-
-Deregister positions safely while collecting accumulated yield.
-
-Ensure gas-efficient and secure operations.
-=================================================================
 Architecture
-Core Components
 
-Position – Tracks LP liquidity, tick ranges, vault shares, idle state.
+How It Works
 
-PoolConfig – Tracks pool-specific configurations (fee, vault, tick spacing).
-=============================================================
-Data Structures
----------------------------------------------------------------
- struct PositionInfo {
-        uint128 liquidity;
-        int24 lowerTick;
-        int24 upperTick;
-        uint256 vaultShares;
-        uint256 accumulatedYield;
-        bool isIdle;
-    }
+Security Considerations
 
-    struct PoolConfig {
-        IERC4626 vault;
-        // Aave integration
-        ILendingPool lendingPool;
-        IERC20 aToken;
-        address asset;
-        bool useAave;
+Deployment
 
-        uint256 lpShareBP;
-        uint256 protocolShareBP;
-    }
-    ===============================================
-    consttructue
-    ---------------------------
-    constructor(address _poolManager)
-    BaseHook(IPoolManager(_poolManager))
-    Ownable()
-    {}
+Testing & Deployment Commands
 
-    _poolManager – Reference to PoolManager contract controlling pools
-Idle LPs – Addresses with delegated liquidity.
-================================================================
-Public Methods
---------------------------------------------
-function registerPosition(
-        PoolId pid,
-        uint128 liquidity,
-        int24 lower,
-        int24 upper
-    ) external {
-        require(positions[pid][msg.sender].liquidity == 0, "Already registered");
-        require(lower < upper, "Invalid tick range");
+Usage
 
-        positions[pid][msg.sender] = PositionInfo({
-            liquidity: liquidity,
-            lowerTick: lower,
-            upperTick: upper,
-            vaultShares: 0,
-            accumulatedYield: 0,
-            isIdle: false
-        });
+Future Improvements
 
-        emit PositionRegistered(msg.sender, pid, liquidity);
-    }
-    function deregisterPosition(PoolId pid, PoolKey calldata key) external {
-    PositionInfo storage pos = positions[pid][msg.sender];
-    require(pos.liquidity > 0, "No position");
+License
 
-    // Only collect yield if LP has shares and vault is set
-    if (pos.isIdle && pos.vaultShares > 0) {
-        PoolConfig memory config = poolConfig[pid];
-        if (address(config.vault) != address(0)) {
-            _collectYield(pos, msg.sender, pid, key);
-        }
-    }
+Overview
 
-    // Remove from idleLPs safely if LP is marked idle
-    if (isIdleLP[pid][msg.sender]) {
-        uint256 index = _findIdleIndex(pid, msg.sender);
-        _removeIdleLP(pid, index);
-    }
+Uniswap v4 allows custom hooks to extend pool behavior.
+IdleLiquidityHookEnterprise automatically:
 
-    // Delete position last to ensure yield collection works
-    delete positions[pid][msg.sender];
+Detects idle LP positions.
 
-    emit PositionDeregistered(msg.sender, pid);
+Moves idle liquidity into yield-bearing ERC4626 vaults or Aave lending pools.
+
+Collects and distributes yield between LPs and the protocol.
+
+Redeploys liquidity automatically when positions become active again.
+
+Problem
+
+Liquidity providers often have idle positions due to price ranges, losing potential yield.
+Manual management is error-prone and inefficient.
+
+Solution
+
+IdleLiquidityHookEnterprise offers:
+
+Automated idle detection for LP positions.
+
+Dynamic yield allocation via ERC4626 vaults or Aave.
+
+Protocol fee split between LPs and the protocol owner.
+
+Automatic redeployment of liquidity when positions return in-range.
+
+Architecture
+
+Core Components:
+
+PositionInfo – Tracks per-LP data: liquidity, tick range, idle status, accumulated yield, vault shares, and Aave principal.
+
+PoolConfig – Configures vault or Aave integration per pool; sets LP and protocol fee splits.
+
+Idle LP Management – Tracks and updates idle LPs safely per pool.
+
+Hooks Integration – Implements the afterSwap hook to trigger idle detection, vault deposit, yield collection, and liquidity redeployment.
+
+How It Works
+
+Register a Position
+
+LPs register their positions:
+
+idleHook.registerPosition(pid, liquidity, lowerTick, upperTick);
+
+Monitor Pool Swaps
+
+The afterSwap hook handles idle detection and redeployment:
+
+_afterSwap(...) internal override {
+    _updateIdlePositions(pid, key, currentTick);
 }
- 
 
+Yield Collection
 
-Vault – Optional external yield mechanism.
-=============================================================
+ERC4626 Vaults: yield = assets - principal
 
-Event
----------------------------------------------------
-event PositionRegistered(address indexed lp, PoolId indexed pid, uint128 liquidity);
-    event PositionDeregistered(address indexed lp, PoolId indexed pid);
-    event PoolConfigUpdated(PoolId indexed pid, address vault, uint256 lpBP, uint256 protocolBP);
-    event LiquidityMovedToVault(address indexed lp, PoolId indexed pid, uint256 amount, uint256 shares);
-    event YieldCollected(address indexed lp, PoolId indexed pid, uint256 lpYield, uint256 protocolYield);
-    event LiquidityRedeployed(address indexed lp, PoolId indexed pid, uint256 amount)
-============================================================
-Local Development Command
-------------------------------------------------
+Aave: yield = aToken balance - total principal
+
+LPs receive their share; protocol receives the remainder
+
+Redeploy Liquidity
+
+_redeployLiquidity(pos, lp, key);
+
+Withdraws from vault/Aave and re-adds liquidity to the pool.
+
+Security Considerations
+
+ReentrancyGuard protects sensitive functions.
+
+SafeERC20 ensures secure token transfers.
+
+OnlyOwner restricts pool configuration updates.
+
+Backward iteration for safe idle LP removal.
+
+Yield is collected before deregistering positions.
+
+Deployment
+
+Designed for Arbitrum Sepolia or compatible testnets.
+
+Constructor requires the Uniswap v4 IPoolManager address:
+
+IdleLiquidityHookEnterprise idleHook = new IdleLiquidityHookEnterprise(poolManagerAddress);
+
+Configure pools:
+
+// ERC4626 vault
+idleHook.setPoolConfigVault(pid, vaultAddress, lpBP, protocolBP);
+
+// Aave
+idleHook.setPoolConfigAave(pid, lendingPool, aToken, asset, lpBP, protocolBP);
+Testing & Deployment Commands
+
+Hardhat Testing
+
 # Install dependencies
 npm install
 
 # Compile contracts
 npx hardhat compile
 
-# Run local node
-npx hardhat node
-
-# Deploy contracts locally
-npx hardhat run scripts/deploy-arbtrum.js --network localhost
-
 # Run all tests
 npx hardhat test
-========================================================
 
-Security Considerations
+# Run a specific test file
+npx hardhat test test/IdleLiquidityHookEnterprise.test.js
 
-Access Control: Only LPs can register/deregister positions.
+Deployment to Arbitrum Sepolia
 
-Reentrancy: Yield collection happens before deletion of storage.
+# Deploy to Sepolia
+npx hardhat run scripts/deploy.js --network arbitrumSepolia
 
-Input Validation: Tick ranges and liquidity validated.
+(Ensure your hardhat.config.js has Arbitrum Sepolia RPC and private key configured.)
 
-Vault Safety: Validate external vault addresses before delegating liquidity.
+Usage
 
-Events: Always emit events to track position lifecycle.
+Register a position – LP registers liquidity and tick range.
 
-Gas Optimization Strategies
+Claim yield – LP claims accumulated yield from idle periods:
 
-Use uint128 for liquidity to reduce storage cost.
+idleHook.claimYield(pid, key);
 
-Minimize writes to storage; update only when necessary.
+Deregister a position – LP removes the position and collects pending yield:
 
-Idle LP array management via index swaps.
+idleHook.deregisterPosition(pid, key);
+Future Improvements
 
-Defer yield collection until deregistration.
-    
+Multi-token vault support.
+
+Dynamic fee splitting based on LP activity.
+
+Analytics for LP yield reporting.
+
+Gas optimizations for large-scale LP management.
+
+License
+
+This project is licensed under the MIT License.
