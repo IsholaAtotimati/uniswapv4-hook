@@ -25,7 +25,7 @@ artifacts/contracts/hooks/IdleLiquidityHookEnterprise.sol/IdleLiquidityHookEnter
 
 - Generic method UI: after loading an ABI the frontend renders callable functions (read vs tx) and lets you input arguments.
 - Idle Hook Actions: helpers to compute `PoolId`, register/deregister positions, and claim yield by providing `PoolKey` JSON.
-- Pool Config flows: dedicated UI to call `setPoolConfigVault` and `setPoolConfigAave` with client-side validation (ensures `lpBP + protocolBP == 10000`).
+- Pool Config flows: dedicated UI to call `setPoolConfigVault` and `setPoolConfigAave` with client-side validation (ensures `lpBP + protocolBP == 10000`). The UI interprets the returned `strategy` field (0=NONE,1=ERC4626,2=AAVE).
 - Artifact loader: a small convenience to fetch compiled ABI JSON from the repo's `artifacts` folder (works when served from the repo root).
 
 ## Examples
@@ -40,7 +40,7 @@ artifacts/contracts/hooks/IdleLiquidityHookEnterprise.sol/IdleLiquidityHookEnter
 
 ## Troubleshooting
 
-- Reverts and owner-only functions: `setPoolConfig*` are `onlyOwner`. Connect the wallet that is the contract owner (deployer) or you will receive a revert.
+- Reverts and owner-only functions: `setPoolConfig*` are `onlyOwner`. Connect the wallet that is the contract owner (deployer) or you will receive a revert. After configuration the frontend will display proper UI based on the selected strategy.
 - Missing ABI: many UI elements require the ABI to be loaded first. If you see `Load an ABI to see methods`, load the ABI.
 - CORS/Serving artifacts: when using `Load from artifacts`, serve from the repository root so the `artifacts` folder is reachable at `http://localhost:8000/artifacts/...`.
 

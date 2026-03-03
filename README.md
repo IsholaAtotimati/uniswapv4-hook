@@ -21,22 +21,25 @@ PoolConfig – Tracks pool-specific configurations (fee, vault, tick spacing).
 Data Structures
 ---------------------------------------------------------------
  struct PositionInfo {
-        uint128 liquidity;
+        // liquidity amount per side (0 -> currency0, 1 -> currency1)
+        uint128 liquidity0;
+        uint128 liquidity1;
         int24 lowerTick;
         int24 upperTick;
-        uint256 vaultShares;
-        uint256 accumulatedYield;
         bool isIdle;
+        // vault shares per side
+        uint256 vaultShares0;
+        uint256 vaultShares1;
+        // accumulated yield per side
+        uint256 accumulatedYield0;
+        uint256 accumulatedYield1;
+        // Aave accounting per side
+        uint256 aTokenPrincipal0;
+        uint256 aTokenPrincipal1;
     }
 
     struct PoolConfig {
-        IERC4626 vault;
-        // Aave integration
-        ILendingPool lendingPool;
-        IERC20 aToken;
-        address asset;
-        bool useAave;
-
+        AssetConfig[2] assets; // configuration for each pool side
         uint256 lpShareBP;
         uint256 protocolShareBP;
     }
@@ -53,49 +56,58 @@ Idle LPs – Addresses with delegated liquidity.
 ================================================================
 Public Methods
 --------------------------------------------
+- `setPriceFeed(address asset, AggregatorV3Interface feed)` (owner-only) registers a Chainlink feed for an asset and emits `PriceFeedUpdated`.
+- `getLatestPrice(address asset) public view returns (int256)` returns the last answer from the linked price feed (reverts if none).
+- `getPositionValue(PoolId pid, address lp) external view returns (int256)` computes a simple value metric for an LP position using the configured feeds and liquidity per side. Typically used for analytics or dashboarding.
+
 function registerPosition(
         PoolId pid,
-        uint128 liquidity,
+        uint128 liquidity0,
+        uint128 liquidity1,
         int24 lower,
         int24 upper
     ) external {
-        require(positions[pid][msg.sender].liquidity == 0, "Already registered");
+        PositionInfo storage pos = positions[pid][msg.sender];
+        require(pos.liquidity0 == 0 && pos.liquidity1 == 0, "Already registered");
         require(lower < upper, "Invalid tick range");
 
-        positions[pid][msg.sender] = PositionInfo({
-            liquidity: liquidity,
-            lowerTick: lower,
-            upperTick: upper,
-            vaultShares: 0,
-            accumulatedYield: 0,
-            isIdle: false
-        });
+        pos.liquidity0 = liquidity0;
+        pos.liquidity1 = liquidity1;
+        pos.lowerTick = lower;
+        pos.upperTick = upper;
+        pos.isIdle = false;
+        pos.vaultShares0 = 0;
+        pos.vaultShares1 = 0;
+        pos.accumulatedYield0 = 0;
+        pos.accumulatedYield1 = 0;
+        pos.aTokenPrincipal0 = 0;
+        pos.aTokenPrincipal1 = 0;
 
-        emit PositionRegistered(msg.sender, pid, liquidity);
+        emit PositionRegistered(msg.sender, pid, liquidity0, liquidity1);
     }
     function deregisterPosition(PoolId pid, PoolKey calldata key) external {
-    PositionInfo storage pos = positions[pid][msg.sender];
-    require(pos.liquidity > 0, "No position");
+        PositionInfo storage pos = positions[pid][msg.sender];
+        require(pos.liquidity0 > 0 || pos.liquidity1 > 0, "No position");
 
-    // Only collect yield if LP has shares and vault is set
-    if (pos.isIdle && pos.vaultShares > 0) {
-        PoolConfig memory config = poolConfig[pid];
-        if (address(config.vault) != address(0)) {
+        // Only collect yield if LP is idle and has funds in vault/Aave
+        if (
+            pos.isIdle &&
+            (pos.vaultShares0 > 0 || pos.vaultShares1 > 0 || pos.aTokenPrincipal0 > 0 || pos.aTokenPrincipal1 > 0)
+        ) {
             _collectYield(pos, msg.sender, pid, key);
         }
+
+        // Remove from idleLPs safely if LP is marked idle
+        if (isIdleLP[pid][msg.sender]) {
+            uint256 index = _findIdleIndex(pid, msg.sender);
+            _removeIdleLP(pid, index);
+        }
+
+        // Delete position last to ensure yield collection works
+        delete positions[pid][msg.sender];
+
+        emit PositionDeregistered(msg.sender, pid);
     }
-
-    // Remove from idleLPs safely if LP is marked idle
-    if (isIdleLP[pid][msg.sender]) {
-        uint256 index = _findIdleIndex(pid, msg.sender);
-        _removeIdleLP(pid, index);
-    }
-
-    // Delete position last to ensure yield collection works
-    delete positions[pid][msg.sender];
-
-    emit PositionDeregistered(msg.sender, pid);
-}
  
 
 
@@ -104,9 +116,10 @@ Vault – Optional external yield mechanism.
 
 Event
 ---------------------------------------------------
-event PositionRegistered(address indexed lp, PoolId indexed pid, uint128 liquidity);
+event PositionRegistered(address indexed lp, PoolId indexed pid, uint128 liquidity0, uint128 liquidity1);
     event PositionDeregistered(address indexed lp, PoolId indexed pid);
-    event PoolConfigUpdated(PoolId indexed pid, address vault, uint256 lpBP, uint256 protocolBP);
+    event PoolConfigUpdated(PoolId indexed pid, uint8 side, address asset, uint256 lpBP, uint256 protocolBP);
+    event PriceFeedUpdated(address indexed asset, address feed);
     event LiquidityMovedToVault(address indexed lp, PoolId indexed pid, uint256 amount, uint256 shares);
     event YieldCollected(address indexed lp, PoolId indexed pid, uint256 lpYield, uint256 protocolYield);
     event LiquidityRedeployed(address indexed lp, PoolId indexed pid, uint256 amount)

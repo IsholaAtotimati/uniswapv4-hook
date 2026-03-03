@@ -1,4 +1,7 @@
 {
-  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-  "network": "localhost"
+  "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
+  "hook": "0xba9602c0fde15797968dc7fab6bcdc7f4fbe4040",
+  "deployer": "0x979Ed023B4aCD28C9Eb3706B51339E307076F16d",
+  "network": "arbitrumSepolia",
+  "readOnlyRpc": "https://arbitrum-sepolia.infura.io/v3/8c2886764dce4f659b2b6fe8bbbcd29c"
 }

@@ -17,12 +17,14 @@ describe("IdleLiquidityHookEnterprise Fuzz Tests", function () {
   it("should handle random LP registrations", async function () {
     for (let i = 0; i < 5; i++) {
       const user = accounts[i];
-      const liquidity = Math.floor(Math.random() * 1000) + 1;
+      const liquidity0 = Math.floor(Math.random() * 1000) + 1;
+      const liquidity1 = Math.floor(Math.random() * 1000) + 1;
 
-      await hook.connect(user).registerPosition(pid, liquidity, -60, 60);
+      await hook.connect(user).registerPosition(pid, liquidity0, liquidity1, -60, 60);
       const pos = await hook.positions(pid, user.address);
 
-      expect(pos.liquidity).to.equal(liquidity);
+      expect(pos.liquidity0).to.equal(liquidity0);
+      expect(pos.liquidity1).to.equal(liquidity1);
     }
   });
 });

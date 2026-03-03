@@ -20,9 +20,9 @@ async function deployIdleLiquidityHook() {
   const idleLiquidityHook = await IdleLiquidityHook.deploy(await poolManager.getAddress());
   await idleLiquidityHook.waitForDeployment();
 
-  // Configure a pool
+  // Configure a pool using ERC4626 vault strategy
   const poolId = ethers.encodeBytes32String("1");
-  await idleLiquidityHook.setPoolConfig(poolId, await vaultMock.getAddress(), 5000, 5000);
+  await idleLiquidityHook.setPoolConfigVault(poolId, await vaultMock.getAddress(), 5000, 5000);
 
   return { signers, poolManager, vaultMock, idleLiquidityHook, poolId };
 }

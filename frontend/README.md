@@ -27,4 +27,4 @@ Notes
 - You can use the "Load from artifacts" button and paste a relative artifact path (for example:
   `artifacts/contracts/hooks/IdleLiquidityHookEnterprise.sol/IdleLiquidityHookEnterprise.json`) to auto-load the compiled ABI.
 - For write transactions ensure your wallet has funds on the target network.
-- This is intentionally minimal; extend it with UI for specific methods (`registerPosition`, `claimYield`, etc.) if you want a tailored UX.
+- This is intentionally minimal; extend it with UI for specific methods (`registerPosition`, `claimYield`, `setPriceFeed`, `getLatestPrice`, etc.) if you want a tailored UX.

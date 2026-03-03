@@ -26,22 +26,14 @@ describe("IdleLiquidityHookEnterprise Gas Tests", function () {
     const tx1 = await hook.registerPosition(
       poolId,
       10000,
+      10000,
       -500,
       500
     );
 
     const receipt1 = await tx1.wait();
     console.log("Register Gas Used:", receipt1.gasUsed.toString());
-    const ownerAddress = await owner.getAddress();
-    const poolKey = [
-      ownerAddress,
-      ownerAddress,
-      3000,
-      60,
-      await hook.getAddress()
-    ];
-
-    const tx2 = await hook.deregisterPosition(poolId, poolKey);
+    const tx2 = await hook.deregisterPosition(poolId);
     const receipt2 = await tx2.wait();
 
     console.log("Deregister Gas Used:", receipt2.gasUsed.toString());

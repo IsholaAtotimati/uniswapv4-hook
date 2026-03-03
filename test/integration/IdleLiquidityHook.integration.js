@@ -28,6 +28,7 @@ describe("IdleLiquidityHookEnterprise Integration Tests", function () {
     await hook.registerPosition(
       poolId,
       5000,
+      5000,
       -120,
       120
     );
@@ -35,13 +36,13 @@ describe("IdleLiquidityHookEnterprise Integration Tests", function () {
     // ✅ get owner address and check position
     const ownerAddress = await owner.getAddress();
     let position = await hook.positions(poolId, ownerAddress);
-    expect(position.liquidity).to.equal(5000);
+    expect(position.liquidity0).to.equal(5000);
+    expect(position.liquidity1).to.equal(5000);
 
-    const poolKey = [ownerAddress, ownerAddress, 3000, 60, await hook.getAddress()];
-
-    await hook.deregisterPosition(poolId, poolKey);
+    await hook.deregisterPosition(poolId);
 
     position = await hook.positions(poolId, ownerAddress);
-    expect(position.liquidity).to.equal(0);
+    expect(position.liquidity0).to.equal(0);
+    expect(position.liquidity1).to.equal(0);
   });
 });
