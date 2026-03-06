@@ -8,8 +8,13 @@ describe("IdleLiquidityHookEnterprise Fuzz Tests", function () {
   beforeEach(async function () {
     [owner, ...accounts] = await ethers.getSigners();
 
+    // deploy a mock pool manager so verifyPositionOwnership can call it
+    const PoolManager = await ethers.getContractFactory("PoolManagerMock");
+    const poolManager = await PoolManager.deploy();
+    await poolManager.waitForDeployment();
+
     const Hook = await ethers.getContractFactory("IdleLiquidityHookEnterprise");
-    hook = await Hook.deploy(owner.address);
+    hook = await Hook.deploy(await poolManager.getAddress());
 
     pid = ethers.keccak256(ethers.toUtf8Bytes("POOL_1"));
   });

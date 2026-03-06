@@ -24,6 +24,16 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
+// optional extra helper available on testing config or extended pool managers
+interface IPoolManagerExtra {
+    function getPositionLiquidity(
+        PoolId pid,
+        address owner,
+        int24 lower,
+        int24 upper
+    ) external view returns (uint128);
+}
+
 contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     // Store PoolKey for each PoolId for future integration
     mapping(PoolId => PoolKey) public poolKeys;
@@ -51,6 +61,21 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
 
     function testMarkNeedUpdate(PoolId pid) external {
         needUpdate[pid] = true;
+    }
+
+    /// @notice TEST-ONLY: adjust tick range of an existing position without
+    /// deregistering.  Useful for unit tests to simulate a position moving
+    /// back into range so that funds can be withdrawn from a strategy.
+    function testSetPositionRange(
+        PoolId pid,
+        address lp,
+        int24 lower,
+        int24 upper
+    ) external {
+        Position storage pos = positions[pid][lp];
+        require(pos.liquidity0 != 0 || pos.liquidity1 != 0, "no position");
+        pos.lowerTick = lower;
+        pos.upperTick = upper;
     }
 
     event DebugAssetSet(PoolId indexed pid, uint8 side, address asset);
@@ -220,7 +245,8 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
         uint128 liq = side == 0 ? pos.liquidity0 : pos.liquidity1;
         if (liq == 0) return;
         address asset = aconf.asset;
-        (int256 price, ) = _getSafePrice(asset);
+        // oracle check; ignore returned price
+        _getSafePrice(asset);
         int256 refPrice = lastGoodPrice[asset];
         if (refPrice > 0) _checkPriceDeviation(asset, refPrice);
         if (aconf.strategy == Strategy.ERC4626) {
@@ -251,7 +277,8 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
         uint128 liq = side == 0 ? pos.liquidity0 : pos.liquidity1;
         if (liq == 0) return;
         address asset = aconf.asset;
-        (int256 price, ) = _getSafePrice(asset);
+        // no need for the price variable, only ensure call succeeds
+        _getSafePrice(asset);
         int256 refPrice = lastGoodPrice[asset];
         if (refPrice > 0) _checkPriceDeviation(asset, refPrice);
         if (aconf.strategy == Strategy.ERC4626) {
@@ -292,7 +319,8 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
             // Safety: Validate oracle price, staleness, deviation
             address asset = aconf.asset;
             if (asset != address(0)) {
-                (int256 price, ) = _getSafePrice(asset);
+                // fetch price to enforce oracle constraints; value not required here
+                _getSafePrice(asset);
                 int256 refPrice = lastGoodPrice[asset];
                 if (refPrice > 0) _checkPriceDeviation(asset, refPrice);
             }
@@ -356,6 +384,10 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     ) external {
         require(verifyPositionOwnership(pid, msg.sender, lower, upper), "not position owner");
         PositionManager.registerPosition(positions, trackedLPs, globalYieldIndex, totalIdleLiquidity, pid, msg.sender, liquidity0, liquidity1, lower, upper);
+        // Initialize yield indices to avoid overflow on first accrual
+        Position storage pos = positions[pid][msg.sender];
+        pos.lastYieldIndex0 = globalYieldIndex[pid][0];
+        pos.lastYieldIndex1 = globalYieldIndex[pid][1];
         emit PositionRegistered(msg.sender, pid, liquidity0, liquidity1);
     }
 
@@ -467,7 +499,8 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
         priceFeed[asset] = AggregatorV3Interface(feed);
         // Save last good price for deviation checks
         (, int256 price,, uint256 updated,) = AggregatorV3Interface(feed).latestRoundData();
-        if (price > 0 && block.timestamp - updated <= OracleManager.ORACLE_MAX_DELAY) {
+        // ensure `updated` is not in the future before subtracting to avoid underflow
+        if (price > 0 && updated <= block.timestamp && block.timestamp - updated <= OracleManager.ORACLE_MAX_DELAY) {
             lastGoodPrice[asset] = price;
         }
         emit PriceFeedUpdated(asset, feed);
@@ -597,11 +630,20 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     }
 
     /// @notice Placeholder for future PoolManager position ownership verification
+    /// @dev First attempts to call an optional helper on the pool manager.  If the
+    /// call fails (real manager does not implement it) we fall back to the
+    /// extsload-based lookup used by StateLibrary with a zero salt.  This keeps
+    /// the behaviour compatible with the existing mock while allowing a proper
+    /// check on mainnet.
     function verifyPositionOwnership(PoolId pid, address lp, int24 lower, int24 upper) public view returns (bool) {
-        // TODO: Integrate with PoolManager to check actual ownership
-        // For now, always return true
-        pid; lp; lower; upper;
-        return true;
+        // try the helper interface first
+        try IPoolManagerExtra(address(poolManager)).getPositionLiquidity(pid, lp, lower, upper) returns (uint128 liq) {
+            return liq > 0;
+        } catch {
+            // fallback: read the position liquidity directly from storage via extsload
+            (uint128 liq,,) = StateLibrary.getPositionInfo(poolManager, pid, lp, lower, upper, bytes32(0));
+            return liq > 0;
+        }
     }
 }
 

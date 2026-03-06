@@ -24,6 +24,11 @@ const config = {
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
     },
+     unichainTest: {
+      url: process.env.UNICHAIN_RPC_URL || "",
+      chainId:  1301,          // replace with the correct chainId
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+    },
 
     arbitrumSepolia: {
       url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "",
@@ -31,6 +36,17 @@ const config = {
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
       chainId: 421614, // Arbitrum Sepolia
+    },
+    fork: {
+      url: process.env.MAINNET_RPC_URL || "https://mainnet.infura.io/v3/5741534f26d042999a28f7afd1e61fd7",
+      forking: {
+        url: process.env.MAINNET_RPC_URL || "https://mainnet.infura.io/v3/5741534f26d042999a28f7afd1e61fd7",
+        blockNumber: 19700000 // Optional: set a recent block for deterministic tests
+      },
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+      chainId: 1,
     },
   },
 

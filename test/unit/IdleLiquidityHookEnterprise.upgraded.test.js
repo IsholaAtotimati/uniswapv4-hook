@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("IdleLiquidityHookEnterprise Upgraded", function () {
   let hook;
@@ -19,12 +20,14 @@ describe("IdleLiquidityHookEnterprise Upgraded", function () {
   });
 
   it("should register and track LPs efficiently", async function () {
+    const ownerAddress = await owner.getAddress();
+    await poolManager.setPositionLiquidity(poolId, ownerAddress, -100, 100, 1);
     await hook.registerPosition(poolId, 1000, 2000, -100, 100);
+    await poolManager.setPositionLiquidity(poolId, ownerAddress, -200, 200, 1);
     await hook.registerPosition(poolId, 500, 1500, -200, 200);
     // Check tracked LPs
     // This will require a public getter for trackedLPs or EnumerableSet
     // For now, check positions
-    const ownerAddress = await owner.getAddress();
     const pos = await hook.positions(poolId, ownerAddress);
     expect(pos.liquidity0).to.equal(500);
     expect(pos.liquidity1).to.equal(1500);
@@ -63,10 +66,15 @@ describe("IdleLiquidityHookEnterprise Upgraded", function () {
     await tokenB.approve(hook.getAddress(), 1000000);
     await tokenA.transfer(hook.getAddress(), 1000);
     await tokenB.transfer(hook.getAddress(), 2000);
-    // Register position and rebalance
+    // Register position and rebalance (reuse ownerAddress)
+    await poolManager.setPositionLiquidity(poolId, ownerAddress, 1, 100, 1);
     await hook.registerPosition(poolId, 1000, 2000, 1, 100); // range excludes 0
     // Simulate out of range
     await hook.testMarkNeedUpdate(poolId);
+    // make sure oracle timestamp is not in the future relative to the upcoming block
+    const now2 = await time.latest();
+    await aggA.setTimestamp(now2);
+    await aggB.setTimestamp(now2);
     await hook.rebalance(poolId, 0, 1);
     // Check status
     const pos = await hook.positions(poolId, ownerAddress);
@@ -76,8 +84,13 @@ describe("IdleLiquidityHookEnterprise Upgraded", function () {
     // Transfer tokens again for the new registration
     await tokenA.transfer(hook.getAddress(), 1000);
     await tokenB.transfer(hook.getAddress(), 2000);
+    // reuse ownerAddress from above
+    await poolManager.setPositionLiquidity(poolId, ownerAddress, -100, 100, 1);
     await hook.registerPosition(poolId, 1000, 2000, -100, 100); // range includes 0
     await hook.testMarkNeedUpdate(poolId);
+    const now3 = await time.latest();
+    await aggA.setTimestamp(now3);
+    await aggB.setTimestamp(now3);
     await hook.rebalance(poolId, 0, 1);
     const pos2 = await hook.positions(poolId, ownerAddress);
     expect(pos2.status).to.equal(0); // ACTIVE
@@ -90,7 +103,7 @@ describe("IdleLiquidityHookEnterprise Upgraded", function () {
     await aggA.waitForDeployment();
     const aggB = await MockAgg.deploy(200000000); // 8 decimals
     await aggB.waitForDeployment();
-    const now = Math.floor(Date.now() / 1000);
+    const now = await time.latest();
     await aggA.setRoundData(100000000, now);
     await aggB.setRoundData(200000000, now);
     // Deploy mock token and vault for asset0
@@ -109,12 +122,14 @@ describe("IdleLiquidityHookEnterprise Upgraded", function () {
     await vaultB.waitForDeployment();
     await hook.setPoolConfigVault(poolId, 1, tokenB.getAddress(), vaultB.getAddress(), 5000, 5000);
     await hook.setPriceFeed(tokenB.getAddress(), aggB.getAddress());
+    const ownerAddress = await owner.getAddress();
+    await poolManager.setPositionLiquidity(poolId, ownerAddress, -100, 100, 1);
     await hook.registerPosition(poolId, 1000, 2000, -100, 100);
     // Simulate yield
     await hook.addGlobalYield(poolId, 0, 100);
     await hook.addGlobalYield(poolId, 1, 200);
     await hook.claimYield(poolId);
-    const ownerAddress = await owner.getAddress();
+    // reuse ownerAddress from above
     const pos = await hook.positions(poolId, ownerAddress);
     expect(pos.accumulatedYield0).to.equal(0);
     expect(pos.accumulatedYield1).to.equal(0);

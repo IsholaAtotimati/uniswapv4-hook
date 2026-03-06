@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("IdleLiquidityHookEnterprise Unit Tests", function () {
   let hook;
@@ -25,6 +26,10 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
 
   it("should register a position", async function () {
       // supply equal liquidity on both sides for simplicity
+      // tell the mock that the deployer actually has a position in the pool
+      const ownerAddress = await owner.getAddress();
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, -600, 600, 1);
+
       await hook.registerPosition(
         poolId,
         1000,
@@ -33,12 +38,24 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
         600
       );
 
-      const ownerAddress = await owner.getAddress();
       const position = await hook.positions(poolId, ownerAddress);
       expect(position.liquidity0).to.equal(1000);
       expect(position.liquidity1).to.equal(1000);
     });
+
+  it("reverts if pool manager reports no underlying position", async function () {
+      const ownerAddress = await owner.getAddress();
+      // explicit override to zero so verification fails
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, -50, 50, 0);
+      await expect(
+        hook.registerPosition(poolId, 100, 100, -50, 50)
+      ).to.be.revertedWith("not position owner");
+  });
   it("should deregister a position", async function () {
+      // register a fake underlying position so the ownership check passes
+      const ownerAddress = await owner.getAddress();
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, -600, 600, 1);
+
       await hook.registerPosition(
         poolId,
         500,
@@ -47,7 +64,6 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
         600
       );
 
-      const ownerAddress = await owner.getAddress();
       await hook.deregisterPosition(poolId);
 
       const position = await hook.positions(poolId, ownerAddress);
@@ -85,6 +101,87 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
     });
   });
 
+  describe("Aave strategy", function () {
+    it("moves assets into lending pool when idle and withdraws when active", async function () {
+      const ERC20Mock = await ethers.getContractFactory("ERC20Mock");
+      const asset = await ERC20Mock.deploy("Asset", "AST", 1000000);
+      await asset.waitForDeployment();
+      const aToken = await ERC20Mock.deploy("aAsset", "aAST", 0);
+      await aToken.waitForDeployment();
+
+      // resolve addresses once
+      const assetAddr = await asset.getAddress();
+      const aTokenAddr = await aToken.getAddress();
+
+      const LendingPool = await ethers.getContractFactory("contracts/mocks/LendingPoolMock.sol:LendingPoolMock");
+      const lendingPool = await LendingPool.deploy(assetAddr, aTokenAddr);
+      await lendingPool.waitForDeployment();
+
+      // set up price feed for the asset
+      const MockAgg = await ethers.getContractFactory("MockAggregator");
+      const agg = await MockAgg.deploy(100);
+      await agg.waitForDeployment();
+      const now = await time.latest();
+      await agg.setRoundData(100, now);
+      await hook.setPriceFeed(assetAddr, agg.getAddress());
+      const storedFeed = await hook.priceFeed(assetAddr);
+      console.log("debug: feed set to", storedFeed);
+      // sanity check
+      expect(storedFeed).to.equal(await agg.getAddress());
+
+      // configure pool side 0 to use Aave strategy
+      await hook.setPoolConfigAave(
+        poolId,
+        0,
+        assetAddr,
+        lendingPool.getAddress(),
+        aTokenAddr,
+        5000,
+        5000
+      );
+
+      // register an out-of-range position and fund the hook with asset
+      const ownerAddress = await owner.getAddress();
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, 1, 100, 1);
+      await hook.registerPosition(poolId, 1000, 0, 1, 100);
+      // check stored position immediately
+      let pos = await hook.positions(poolId, ownerAddress);
+      console.log("debug pos after register", pos);
+      await asset.transfer(hook.getAddress(), 1000);
+
+      // sanity: ensure feed still exists before rebalance
+      const checkFeed = await hook.priceFeed(assetAddr);
+      console.log("debug pre-rebalance feed", checkFeed, "assetAddr", assetAddr);
+
+      // trigger rebalance -> should deposit into Aave
+      await hook.testMarkNeedUpdate(poolId);
+      await hook.rebalance(poolId, 0, 1);
+
+      console.log("debug aToken balance hook", await aToken.balanceOf(hook.getAddress()));
+      pos = await hook.positions(poolId, ownerAddress);
+      console.log("debug pos after rebalance", pos);
+      expect(await aToken.balanceOf(hook.getAddress())).to.equal(1000);
+      expect(pos.aTokenPrincipal0).to.equal(1000);
+      expect(await asset.balanceOf(hook.getAddress())).to.equal(0);
+
+      // now bring position back in-range and rebalance to withdraw
+      // position status is still IDLE from the previous out-of-range rebalance
+      // use the new test helper to adjust the tick range without deregistering
+      await hook.testSetPositionRange(poolId, ownerAddress, -100, 100);
+      // sanity check we still have aToken principal recorded and status
+      pos = await hook.positions(poolId, ownerAddress);
+      console.log("debug pos before withdrawal update", pos);
+      await hook.testMarkNeedUpdate(poolId);
+      await hook.rebalance(poolId, 0, 1);
+
+      console.log("debug post-withdraw asset balance hook", await asset.balanceOf(hook.getAddress()));
+      console.log("debug post-withdraw pool asset balance", await asset.balanceOf(lendingPool.getAddress()));
+      console.log("debug post-withdraw aToken balance hook", await aToken.balanceOf(hook.getAddress()));
+      expect(await asset.balanceOf(hook.getAddress())).to.equal(1000);
+      expect(await aToken.balanceOf(hook.getAddress())).to.equal(0);
+    });
+  });
+
   describe("dual-token asset selection", function () {
     it("claims yield using configured asset regardless of pool key currency0", async function () {
       const ERC20Mock = await ethers.getContractFactory("ERC20Mock");
@@ -108,15 +205,17 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
       await hook.setPriceFeed(tokenAAddress, aggA.getAddress());
       await hook.setPriceFeed(tokenBAddress, aggB.getAddress());
       // Ensure price feed is fresh (simulate Chainlink update)
-      const now = Math.floor(Date.now() / 1000);
+      const now = await time.latest();
       await aggA.setRoundData(777, now);
       await aggB.setRoundData(888, now);
       // configure vaults for both asset sides
       await hook.setPoolConfigVault(poolId, 0, tokenAAddress, vaultA.getAddress(), 5000, 5000);
       await hook.setPoolConfigVault(poolId, 1, tokenBAddress, vaultB.getAddress(), 5000, 5000);
       // register a position and simulate yield distribution
-      await hook.registerPosition(poolId, 1000, 0, -600, 600);
+      // underlying pool position must exist for ownership check
       const ownerAddress = await owner.getAddress();
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, -600, 600, 1);
+      await hook.registerPosition(poolId, 1000, 0, -600, 600);
       // bump index as if 123 tokens were earned
       await hook.addGlobalYield(poolId, 0, 123);
       await hook.processPosition(poolId, ownerAddress);
@@ -133,7 +232,7 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
       const MockAgg = await ethers.getContractFactory("MockAggregator");
       const agg = await MockAgg.deploy(777);
       await agg.waitForDeployment();
-      const now = Math.floor(Date.now() / 1000);
+      const now = await time.latest();
       await agg.setRoundData(777, now);
       const ownerAddress = await owner.getAddress();
 
@@ -171,6 +270,8 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
       await hook.setPoolConfigVault(poolId, 1, tokenB.getAddress(), vaultB.getAddress(), 5000, 5000);
 
       // create a position with 10 units of each side
+      // mark underlying position present (use ownerAddress from above)
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, -10, 10, 1);
       await hook.registerPosition(poolId, 10, 10, -10, 10);
       const val = await hook.getPositionValue(poolId, ownerAddress);
       expect(val).to.equal(8880 + 20);
@@ -201,7 +302,7 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
       await aggA.waitForDeployment();
       const aggB = await MockAgg.deploy(888);
       await aggB.waitForDeployment();
-      const now = Math.floor(Date.now() / 1000);
+      const now = await time.latest();
       await aggA.setRoundData(777, now);
       await aggB.setRoundData(888, now);
       const ERC20Mock = await ethers.getContractFactory("ERC20Mock");
@@ -220,8 +321,9 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
       await hook.setPoolConfigVault(poolId, 1, tokenB.getAddress(), vaultB.getAddress(), 5000, 5000);
 
       // register a position with 1000 liquidity0
-      await hook.registerPosition(poolId, 1000, 0, -100, 100);
       const ownerAddress = await owner.getAddress();
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, -100, 100, 1);
+      await hook.registerPosition(poolId, 1000, 0, -100, 100);
 
       // bump index as if 500 tokens of yield were generated for side0
       await hook.addGlobalYield(poolId, 0, 500);

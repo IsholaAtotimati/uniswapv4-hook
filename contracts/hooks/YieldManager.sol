@@ -30,6 +30,11 @@ library YieldManager {
         if (index <= last) return 0;
         uint256 delta = index - last;
         uint128 liq = side == 0 ? pos.liquidity0 : pos.liquidity1;
+        if (liq == 0) {
+            if (side == 0) pos.lastYieldIndex0 = index;
+            else pos.lastYieldIndex1 = index;
+            return 0;
+        }
         uint256 share = (uint256(liq) * delta) / 1e18;
         if (side == 0) pos.lastYieldIndex0 = index;
         else pos.lastYieldIndex1 = index;

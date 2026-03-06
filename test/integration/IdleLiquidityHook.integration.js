@@ -25,6 +25,9 @@ describe("IdleLiquidityHookEnterprise Integration Tests", function () {
   });
 
   it("full LP lifecycle simulation", async function () {
+    const ownerAddress = await owner.getAddress();
+    await poolManager.setPositionLiquidity(poolId, ownerAddress, -120, 120, 1);
+
     await hook.registerPosition(
       poolId,
       5000,
@@ -33,8 +36,7 @@ describe("IdleLiquidityHookEnterprise Integration Tests", function () {
       120
     );
 
-    // ✅ get owner address and check position
-    const ownerAddress = await owner.getAddress();
+    // ✅ reuse ownerAddress to check position
     let position = await hook.positions(poolId, ownerAddress);
     expect(position.liquidity0).to.equal(5000);
     expect(position.liquidity1).to.equal(5000);

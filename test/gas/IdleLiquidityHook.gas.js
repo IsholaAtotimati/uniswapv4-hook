@@ -23,6 +23,9 @@ describe("IdleLiquidityHookEnterprise Gas Tests", function () {
   });
 
   it("measure register + deregister gas", async function () {
+    const ownerAddress = await owner.getAddress();
+    await poolManager.setPositionLiquidity(poolId, ownerAddress, -500, 500, 1);
+
     const tx1 = await hook.registerPosition(
       poolId,
       10000,

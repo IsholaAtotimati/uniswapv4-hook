@@ -16,7 +16,10 @@ library OracleManager {
         require(address(feed) != address(0), "no feed");
         (, int256 answer,, uint256 updated,) = feed.latestRoundData();
         require(answer > 0, "invalid oracle price");
-        require(block.timestamp - updated <= ORACLE_MAX_DELAY, "stale price");
+        // compute age carefully to avoid underflow even if updated > block.timestamp
+        uint256 age = block.timestamp >= updated ? block.timestamp - updated : type(uint256).max;
+        require(updated <= block.timestamp, "future price timestamp");
+        require(age <= ORACLE_MAX_DELAY, "stale price");
         return (answer, updated);
     }
 

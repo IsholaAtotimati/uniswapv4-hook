@@ -5,7 +5,7 @@ let user;
 let readOnlyProvider = null;
 let contractRead = null;
 
-let totalYield = 0;
+let totalYield = 0; // will hold chain-derived yield value
 let selectedPool = "";
 
 const pools = [
@@ -248,6 +248,8 @@ try{
 }
 
 async function loadIdleLPs(){
+// also refresh yield stats after we know which LPs are tracked
+    await loadYieldStats();
 
 if(!selectedPool) return;
 
@@ -300,27 +302,21 @@ loadPosition();
 
 }
 
-function addActivity(text){
-
-const li=document.createElement("li");
-
-li.innerText=text;
-
-document.getElementById("activityFeed").prepend(li);
-
-totalYield += 1;
-
-document.getElementById("totalYield").innerText = totalYield;
-
-yieldChart.data.labels.push(yieldChart.data.labels.length+1);
-
-yieldChart.data.datasets[0].data.push(totalYield);
-
-yieldChart.update();
-
+function addActivity(text, yieldChange = 0){
+    const li=document.createElement("li");
+    li.innerText=text;
+    document.getElementById("activityFeed").prepend(li);
+    if(yieldChange){
+        totalYield = Number(totalYield) + Number(yieldChange);
+        document.getElementById("totalYield").innerText = totalYield;
+        yieldChart.data.labels.push(yieldChart.data.labels.length+1);
+        yieldChart.data.datasets[0].data.push(totalYield);
+        yieldChart.update();
+    }
 }
 
 async function loadPoolAnalytics(){
+    // optional: we could also compute TVL from yield indexes later
 
 for(let i=0;i<pools.length;i++){
 
@@ -360,6 +356,44 @@ poolChart.update();
 document.getElementById("connect").onclick = connectWallet;
 document.getElementById("registerBtn").onclick = registerPosition;
 document.getElementById("claimBtn").onclick = claimYield;
+
+// helper that will compute yield across all tracked LPs for the selected pool
+async function loadYieldStats(){
+    if(!selectedPool) return;
+    const poolId = getPoolId(selectedPool);
+    let sum = 0;
+    try{
+        const reader = contractRead || contract;
+        let lps = [];
+        if(reader && typeof reader.getTrackedLPs === 'function'){
+            lps = await reader.getTrackedLPs(poolId);
+        } else if(reader && typeof reader.getIdleLPs === 'function'){
+            lps = await reader.getIdleLPs(poolId);
+        }
+        for(const lp of lps){
+            const pos = await reader.positions(poolId, lp);
+            sum += Number(pos.accumulatedYield0) + Number(pos.accumulatedYield1);
+        }
+        totalYield = sum;
+        document.getElementById("totalYield").innerText = totalYield;
+        // update chart only by resetting full dataset
+        yieldChart.data.labels = lps.map((_,i)=>i+1);
+        yieldChart.data.datasets[0].data = lps.map((_,i)=>totalYield);
+        yieldChart.update();
+    }catch(e){
+        console.error('loadYieldStats error', e);
+    }
+}
+
+
+// periodically refresh everything
+setInterval(async ()=>{
+    if(user){
+        loadPosition();
+        loadIdleLPs();
+        loadPoolAnalytics();
+    }
+},15000);
 
 setInterval(async ()=>{
 

@@ -60,6 +60,25 @@ Public Methods
 - `getLatestPrice(address asset) public view returns (int256)` returns the last answer from the linked price feed (reverts if none).
 - `getPositionValue(PoolId pid, address lp) external view returns (int256)` computes a simple value metric for an LP position using the configured feeds and liquidity per side. Typically used for analytics or dashboarding.
 
+### Frontend demo notes
+
+A lightweight dashboard lives in `frontend/` showing:
+* total yield across all tracked LPs for a selected pool (queried from on-chain `positions`),
+* per‑position range, status and accumulated yield,
+* simple TVL analytics for Aave/vaults per pool.
+
+The page automatically refreshes every 15 seconds and updates whenever you claim yield or register a position.
+
+### Off‑chain automation helper
+
+`/scripts/autoRebalance.js` is a minimal keeper script that polls a hardcoded list of pools and calls `rebalance(pid,0,50)` when `needUpdate` is `true`.  Run it with:
+
+```
+npx hardhat run scripts/autoRebalance.js --network <network>
+```
+
+Adapt the `poolNames` array in the script to match the pools you care about.
+
 function registerPosition(
         PoolId pid,
         uint128 liquidity0,
