@@ -182,4 +182,13 @@ Minimize writes to storage; update only when necessary.
 Idle LP array management via index swaps.
 
 Defer yield collection until deregistration.
-    
+    architectural flow 
+    Uniswap Pool
+      ↓ out of range
+Hook
+      ↓
+Aave / ERC4626 vault
+      ↓
+Earn yield
+      ↓
+Return when back in range
