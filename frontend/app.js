@@ -3,10 +3,40 @@ let signer;
 let contract;
 let user;
 let readOnlyProvider = null;
+let readOnlyRpcUrl = null;
 let contractRead = null;
+
+function getReadOnlyProvider(){
+	if(readOnlyProvider) return readOnlyProvider;
+	const url = readOnlyRpcUrl || 'http://localhost:8545';
+	try {
+		readOnlyProvider = new ethers.JsonRpcProvider(url);
+		return readOnlyProvider;
+	} catch (e) {
+		console.warn('[getReadOnlyProvider] failed to create provider for', url, e);
+		// fallback to a public RPC if local is unreachable
+		readOnlyProvider = new ethers.JsonRpcProvider('https://rpc.sepolia.org');
+		return readOnlyProvider;
+	}
+}
 
 let totalYield = 0; // will hold chain-derived yield value
 let selectedPool = "";
+
+// Debug log overlay (visible on page) to help capture logs in case console is not available.
+const debugLog = (function(){
+	const el = document.createElement('div');
+	el.id = 'debugLog';
+	el.style = 'position:fixed;bottom:0;left:0;width:100%;max-height:200px;overflow:auto;background:rgba(0,0,0,0.85);color:#fff;font-size:12px;line-height:1.2;z-index:9999;padding:6px;box-sizing:border-box;';
+	el.innerText = '[debug] app.js loaded';
+	document.addEventListener('DOMContentLoaded', ()=>document.body.appendChild(el));
+	return (msg)=>{
+		console.log(msg);
+		if(el.parentNode) el.innerText += '\n' + msg;
+	};
+})();
+
+debugLog('[debug] initialized');
 
 const pools = [
 { id:"ETH/USDC", name:"ETH/USDC"},
@@ -71,45 +101,137 @@ loadPoolAnalytics();
 		if(!res.ok) return;
 		const data = await res.json();
 		if(data.readOnlyRpc){
-			readOnlyProvider = new ethers.JsonRpcProvider(data.readOnlyRpc);
-		}
+		readOnlyRpcUrl = data.readOnlyRpc;
+	}
 	}catch(e){
 		console.warn('Could not load readOnlyRpc:', e);
 	}
 })();
 
-async function connectWallet(){
+const supportedChains = [
+	{
+		chainId: '0x7a69',
+		name: 'Hardhat Localhost',
+		rpcUrls: ['http://localhost:8545'],
+		nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+		blockExplorerUrls: []
+	},
+	{
+		chainId: '0xaa36a7',
+		name: 'Sepolia',
+		rpcUrls: ['https://rpc.sepolia.org'],
+		nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+		blockExplorerUrls: ['https://sepolia.etherscan.io']
+	},
+	{
+		chainId: '0x82',
+		name: 'Unichain Test',
+		rpcUrls: ['https://lb.drpc.live/unichain/ArDEROL8b0kxlZqYJFMhLn2tIWL8HLIR8aIYdg7bSgwO'],
+		nativeCurrency: { name: 'UNI', symbol: 'UNI', decimals: 18 },
+		blockExplorerUrls: []
+	},
+	{
+		chainId: '0x66eed',
+		name: 'Arbitrum Sepolia',
+		rpcUrls: ['https://sepolia.arbitrum.io/rpc'],
+		nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+		blockExplorerUrls: ['https://sepolia.arbiscan.io']
+	}
+];
 
-if(!window.ethereum){
-alert("Install MetaMask");
-return;
+async function ensureSupportedChain(){
+	if(!window.ethereum) return null;
+
+	const eth = window.ethereum;
+	const currentChainId = await eth.request({ method: 'eth_chainId' });
+	debugLog('[ensureSupportedChain] currentChainId ' + currentChainId);
+	const allowed = new Set(supportedChains.map(c=>c.chainId));
+	debugLog('[ensureSupportedChain] allowed chainIds ' + Array.from(allowed).join(', '));
+	if(allowed.has(currentChainId)) return currentChainId;
+
+	// Prefer a chain close to the user’s current network (e.g., if on mainnet, try Sepolia first).
+	const preferredOrder = currentChainId === '0x1'
+		? [supportedChains[1], supportedChains[2], supportedChains[0]] // Sepolia, Arbitrum Sepolia, Hardhat
+		: supportedChains;
+
+	for(const target of preferredOrder){
+		debugLog('[ensureSupportedChain] trying target ' + target.name + ' ' + target.chainId);
+		try {
+			await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: target.chainId }] });
+			const newChainId = await eth.request({ method: 'eth_chainId' });
+			debugLog('[ensureSupportedChain] after switch attempt, chainId ' + newChainId);
+			if(allowed.has(newChainId)) return newChainId;
+		} catch (switchError) {
+			console.warn('[ensureSupportedChain] switch error', target.chainId, switchError);
+			if (switchError && switchError.code === 4902) {
+				try {
+					await eth.request({
+						method: 'wallet_addEthereumChain',
+						params: [{
+							chainId: target.chainId,
+							rpcUrls: target.rpcUrls,
+							chainName: target.name,
+							nativeCurrency: target.nativeCurrency,
+							blockExplorerUrls: target.blockExplorerUrls
+						}]
+					});
+					// after adding, try switching again
+					await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: target.chainId }] });
+					const newChainId = await eth.request({ method: 'eth_chainId' });
+					debugLog('[ensureSupportedChain] after add+switch, chainId ' + newChainId);
+					if(allowed.has(newChainId)) return newChainId;
+				} catch (addError) {
+					console.warn('Failed to add chain to MetaMask:', addError);
+				}
+			}
+		}
+	}
+
+	return null;
 }
 
-provider=new ethers.BrowserProvider(window.ethereum);
+async function connectWallet(){
+	if(!window.ethereum){
+		alert("Install MetaMask");
+		return;
+	}
 
-await provider.send("eth_requestAccounts",[]);
+	provider=new ethers.BrowserProvider(window.ethereum);
 
-signer=await provider.getSigner();
+	await provider.send("eth_requestAccounts",[]);
 
-user=await signer.getAddress();
+	signer=await provider.getSigner();
+
+	user=await signer.getAddress();
   
-	// Ensure MetaMask is connected to the expected local chain (Hardhat default: 31337 -> 0x7a69)
+	// Ensure MetaMask is connected to a supported chain (Hardhat, Sepolia, Arbitrum Sepolia)
+	let current;
 	try{
-		const chainIdHex = await provider.send('eth_chainId', []);
-		// allow-list: localhost Hardhat (31337), Sepolia (11155111), Arbitrum Sepolia (421614)
-		const allowed = new Set(['0x7a69', '0xaa36a7', '0x66eee']);
-		if(!allowed.has(chainIdHex)){
-			alert('Please switch MetaMask to a supported network: localhost:8545 (Hardhat) or Sepolia/Arbitrum Sepolia. Current chainId: ' + chainIdHex);
-			document.getElementById("status").innerText = "Wrong network";
-			contract = null;
-			return;
-		}
+		debugLog('[connectWallet] checking supported chain');
+		current = await ensureSupportedChain();
+		debugLog('[connectWallet] supported chain result ' + current);
 	}catch(e){
-		console.error('Failed to read chainId from provider:', e);
+		console.error('Failed to determine chainId from provider:', e);
 		document.getElementById("status").innerText = "Error";
 		contract = null;
 		return;
 	}
+
+	const txButtons = ['registerBtn','claimBtn'].map(id => document.getElementById(id));
+	const setTxButtons = enabled => txButtons.forEach(btn => { if(btn) btn.disabled = !enabled; });
+
+	if(!current){
+		// Allow read-only browsing even on Mainnet / unsupported chains, but disable transactional actions.
+		const readProvider = getReadOnlyProvider();
+		contractRead = new ethers.Contract(contractAddress, contractABI, readProvider);
+		contract = null;
+		document.getElementById("status").innerText = "Wrong network (read-only)";
+		setTxButtons(false);
+		// Do not alert; user can still view data in read-only mode.
+		return; // skip bytecode checks / tx setup
+	}
+
+	setTxButtons(true);
 
 	// Verify that there's bytecode at the configured address before instantiating
 	let code = null;
@@ -161,17 +283,20 @@ user=await signer.getAddress();
 	}
 
 		contract = new ethers.Contract(contractAddress, contractABI, signer);
-		// create a read-only contract instance if readOnlyProvider is available
-		if(readOnlyProvider){
-			contractRead = new ethers.Contract(contractAddress, contractABI, readOnlyProvider);
-		} else {
-			contractRead = contract;
-		}
+		// Prefer MetaMask provider for reads (avoids Infura/public RPC rate limits).
+		contractRead = contract;
 
 document.getElementById("connect").innerText =
 user.slice(0,6)+"..."+user.slice(-4);
 
 document.getElementById("status").innerText="Connected";
+
+	// Reload UI when the user switches networks externally
+	if (window.ethereum && window.ethereum.on) {
+		window.ethereum.on('chainChanged', () => {
+			window.location.reload();
+		});
+	}
 
 }
 

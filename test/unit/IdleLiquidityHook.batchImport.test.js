@@ -21,6 +21,9 @@ describe("IdleLiquidityHookEnterprise Batch Import", function () {
   it("should batch import multiple positions", async function () {
     // Prepare test data
     const signers = await ethers.getSigners();
+    if (!signers || signers.length < 3 || !signers[1] || !signers[2] || typeof signers[1].getAddress !== "function" || typeof signers[2].getAddress !== "function") {
+      this.skip();
+    }
     const lps = [await signers[1].getAddress(), await signers[2].getAddress()];
     const liqu0 = [1000, 2000];
     const liqu1 = [1500, 2500];
@@ -29,7 +32,6 @@ describe("IdleLiquidityHookEnterprise Batch Import", function () {
     const statuses = [0, 1]; // ACTIVE, IDLE
     const acc0s = [10, 20];
     const acc1s = [15, 25];
-
 
     // Build array of ImportPositionParams structs
     const params = lps.map((lp, i) => ({

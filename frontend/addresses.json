@@ -1,7 +1,7 @@
 {
-  "poolManager": "0xFB3e0C6F74eB1a21CC1Da29aeC80D2Dfe6C9a317",
-  "hook": "0xba9602c0fde15797968dc7fab6bcdc7f4fbe4040",
-  "deployer": "0x979Ed023B4aCD28C9Eb3706B51339E307076F16d",
-  "network": "arbitrumSepolia",
-  "readOnlyRpc": "https://arbitrum-sepolia.infura.io/v3/8c2886764dce4f659b2b6fe8bbbcd29c"
+  "poolManager": "0x00b036b58a818b1bc34d502d3fe730db729e62ac",
+  "hook": "0xaf911bdc75f8644fc7ed653b2d493383657c4040",
+  "deployer": "0x7b9398C448EDaF2d9948Cee1BaD3748b27e5bb34",
+  "network": "unichainTest",
+  "readOnlyRpc": "https://lb.drpc.live/unichain/ArDEROL8b0kxlZqYJFMhLn2tIWL8HLIR8aIYdg7bSgwO"
 }

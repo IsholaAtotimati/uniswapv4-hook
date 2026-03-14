@@ -33,8 +33,8 @@ describe("IdleLiquidityHookEnterprise - Multi-Pool Multi-LP Full Integration", f
     await ethers.provider.send("hardhat_reset", [{
       forking: {
         jsonRpcUrl: process.env.MAINNET_RPC_URL ||
-          "https://mainnet.infura.io/v3/5741534f26d042999a28f7afd1e61fd7",
-        blockNumber: 19700000,
+          "https://eth-mainnet.g.alchemy.com/v2/jd-7LIeby9JGt5WGnQ7It"
+        // blockNumber removed to use latest
       },
     }]);
     const forkedBlock = await ethers.provider.getBlockNumber();
@@ -46,9 +46,13 @@ describe("IdleLiquidityHookEnterprise - Multi-Pool Multi-LP Full Integration", f
     // lengths are checked implicitly by later operations
 
     // Attach mainnet tokens
-    token0 = await ethers.getContractAt("IERC20", USDC_ADDR);
-    token1 = await ethers.getContractAt("IERC20", DAI_ADDR);
-    token2 = await ethers.getContractAt("IERC20", WETH_ADDR);
+    token0 = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", USDC_ADDR);
+    token1 = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", DAI_ADDR);
+
+    if (!token0 || !token1) {
+      throw new Error("Token contracts not properly initialized");
+    }
+    token2 = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", WETH_ADDR);
 
     // Impersonate USDC whale
     const USDC_WHALE = "0x55fe002aeff02f77364de339a1292923a15844b8";
@@ -267,7 +271,7 @@ describe("IdleLiquidityHookEnterprise - Multi-Pool Multi-LP Full Integration", f
 
     // aTokenMock address saved in before() closure? we need to capture it earlier
     // unfortunately the variable was declared inside before(), so recreate handle
-    const aTokenMock = await ethers.getContractAt("IERC20", aTokenAddr);
+    const aTokenMock = await ethers.getContractAt("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20", aTokenAddr);
 
     // capture hook USDC balance before doing anything
     const hookAddress = await hook.getAddress();

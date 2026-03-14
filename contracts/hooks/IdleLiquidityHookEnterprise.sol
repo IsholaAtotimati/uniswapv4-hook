@@ -646,4 +646,3 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
         }
     }
 }
-
