@@ -328,7 +328,7 @@ lukman12@DESKTOP-K58EKDO:~/idleLiquidity-hook$
 # 🚀 fork mainet
 
 start node
-lukman12@DESKTOP-K58EKDO:~/idleLiquidity-hook$ npx hardhat  node --fork https://eth-mainnet.g.alchemy.com/v2/jd-7LIeby9JGt5WGnQ7It
+lukman12@DESKTOP-K58EKDO:~/idleLiquidity-hook$ npx hardhat  node --fork https://eth-mainnet.g.alchemy.com/v2/my private-key
 run : npx hardhat run scripts/lifecycle-demo.js --network localhost
 expected output:
 lukman12@DESKTOP-K58EKDO:~/idleLiquidity-hook$ npx hardhat run scripts/lifecycle-demo.js --network localhost
