@@ -323,8 +323,6 @@ debug post-withdraw aToken balance hook 0n
 lukman12@DESKTOP-K58EKDO:~/idleLiquidity-hook$ 
 ```
 
----
-
 # 🚀 fork mainet
 
 start node
@@ -411,7 +409,20 @@ Deployer / LP: 0x7b9398C448EDaF2d9948Cee1BaD3748b27e5bb34
 
 lukman12@DESKTOP-K58EKDO:~/idleLiquidity-hook$ 
 
----
+--
+
+## Partner Integrations
+
+This project integrates with the following protocols:
+
+1. Aave
+Idle liquidity is deposited into Aave LendingPool to generate yield while positions are out of range.
+
+2. ERC4626 Vaults
+Supports generic vault-based yield strategies through the ERC4626 standard.
+
+3. Chainlink
+Price feeds are used to verify asset pricing and prevent oracle manipulation.
 
 # 🔁 Example Flow
 
