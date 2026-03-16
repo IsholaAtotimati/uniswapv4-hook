@@ -11,7 +11,6 @@ This document describes the `IdleLiquidityHookEnterprise` contract implemented i
 
 
 `IdleLiquidityHookEnterprise` is a Uniswap v4 hook that automatically moves out-of-range liquidity into a vault (or Aave) while tracking yield for LPs. When the position returns into range, the hook can redeploy liquidity and distribute accrued yield.
-`IdleLiquidityHookEnterprise` is a Uniswap v4 hook that automatically moves out-of-range liquidity into a vault (or Aave) while tracking yield for LPs. When the position returns into range, the hook can redeploy liquidity and distribute accrued yield.
 
 
 - File: [contracts/hooks/IdleLiquidityHookEnterprise.sol](contracts/hooks/IdleLiquidityHookEnterprise.sol#L1-L400)

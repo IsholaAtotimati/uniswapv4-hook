@@ -13,6 +13,7 @@ contract LendingPoolMock is ILendingPool {
         aToken = ERC20Mock(_aToken);
     }
 
+    // Pull directly from msg.sender balance (hook)
     function deposit(
         address assetAddr,
         uint256 amount,
@@ -20,8 +21,8 @@ contract LendingPoolMock is ILendingPool {
         uint16
     ) external override {
         require(assetAddr == address(asset), "wrong asset");
-        asset.transferFrom(msg.sender, address(this), amount);
-        // mint aTokens to the receiver 1:1
+        require(asset.balanceOf(msg.sender) >= amount, "insufficient balance");
+        asset.transfer(address(this), amount);
         aToken.mint(onBehalfOf, amount);
     }
 
@@ -31,7 +32,6 @@ contract LendingPoolMock is ILendingPool {
         address to
     ) external override returns (uint256) {
         require(assetAddr == address(asset), "wrong asset");
-        // burn the caller's aTokens
         aToken.burn(msg.sender, amount);
         asset.transfer(to, amount);
         return amount;

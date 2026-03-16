@@ -46,9 +46,6 @@ const config = {
       gasPrice: 20_000_000_000,
       initialBaseFeePerGas: 0,
       mining: { auto: true, interval: 0 },
-      accounts: [
-        { privateKey: PRIVATE_KEY, balance: "10000000000000000000000" } // 10,000 ETH for local testing
-      ],
       forking: process.env.MAINNET_RPC_URL
         ? { url: process.env.MAINNET_RPC_URL }
         : process.env.UNICHAIN_RPC_URL

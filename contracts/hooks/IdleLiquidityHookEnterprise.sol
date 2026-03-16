@@ -81,6 +81,9 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     event DebugAssetSet(PoolId indexed pid, uint8 side, address asset);
     event DebugClaimYieldAssets(PoolId indexed pid, address asset0, address asset1);
     event DebugPoolId(bytes32 pidBytes);
+    event DebugDepositAttempt(address indexed lp, PoolId pid, uint8 side, uint256 amount, Strategy strategy, address asset);
+    event DebugDepositFailed(address indexed lp, PoolId pid, uint8 side, uint256 amount, address target);
+    event DebugDepositSkipped(address indexed lp, PoolId pid, uint8 side, uint256 amount);
 
     function _pidToBytes32(PoolId pid) internal pure returns (bytes32) {
         return PoolId.unwrap(pid);
@@ -235,36 +238,52 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     }
 
     function _rebalanceSideDeposit(
-        PoolId pid,
-        address lp,
-        uint8 side,
-        PoolConfig storage config,
-        Position storage pos
-    ) private {
-        AssetConfig storage aconf = config.assets[side];
-        uint128 liq = side == 0 ? pos.liquidity0 : pos.liquidity1;
-        if (liq == 0) return;
-        address asset = aconf.asset;
-        // oracle check; ignore returned price
-        _getSafePrice(asset);
-        int256 refPrice = lastGoodPrice[asset];
-        if (refPrice > 0) _checkPriceDeviation(asset, refPrice);
-        if (aconf.strategy == Strategy.ERC4626) {
-            IERC20(asset).safeApprove(address(aconf.vault), liq);
-            uint256 shares = aconf.vault.deposit(liq, address(this));
+    PoolId pid,
+    address lp,
+    uint8 side,
+    PoolConfig storage config,
+    Position storage pos
+) private {
+    AssetConfig storage aconf = config.assets[side];
+    uint128 liq = side == 0 ? pos.liquidity0 : pos.liquidity1;
+
+    if (liq == 0) {
+        emit DebugDepositSkipped(lp, pid, side, liq);
+        return; // nothing to deposit
+    }
+
+    address asset = aconf.asset;
+    emit DebugDepositAttempt(lp, pid, side, liq, aconf.strategy, asset);
+
+    // oracle check
+    _getSafePrice(asset);
+    int256 refPrice = lastGoodPrice[asset];
+    if (refPrice > 0) _checkPriceDeviation(asset, refPrice);
+
+    if (aconf.strategy == Strategy.ERC4626) {
+        IERC20(asset).safeApprove(address(aconf.vault), liq);
+        try aconf.vault.deposit(liq, address(this)) returns (uint256 shares) {
             totalVaultShares[pid][side] += shares;
             if (side == 0) pos.vaultShares0 += shares;
             else pos.vaultShares1 += shares;
             emit LiquidityMovedToVault(lp, pid, liq, shares);
-        } else if (aconf.strategy == Strategy.AAVE) {
-            IERC20(asset).safeApprove(address(aconf.lendingPool), liq);
-            aconf.lendingPool.deposit(asset, liq, address(this), 0);
+        } catch {
+            emit DebugDepositFailed(lp, pid, side, liq, address(aconf.vault));
+        }
+    } else if (aconf.strategy == Strategy.AAVE) {
+        IERC20(asset).safeApprove(address(aconf.lendingPool), liq);
+        try aconf.lendingPool.deposit(asset, liq, address(this), 0) {
             totalATokenPrincipal[pid][side] += liq;
             if (side == 0) pos.aTokenPrincipal0 += liq;
             else pos.aTokenPrincipal1 += liq;
             emit LiquidityMovedToVault(lp, pid, liq, liq);
+        } catch {
+            emit DebugDepositFailed(lp, pid, side, liq, address(aconf.lendingPool));
         }
+    } else {
+        emit DebugDepositSkipped(lp, pid, side, liq);
     }
+}
 
     function _rebalanceSideWithdraw(
         PoolId pid,
@@ -645,4 +664,10 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
             return liq > 0;
         }
     }
+
+        /// @notice Helper for tests/scripts: add an LP to trackedLPs for a pool
+    function addTrackedLP(PoolId pid, address lp) external onlyOwner {
+        trackedLPs[pid].push(lp);
+    }
+
 }
