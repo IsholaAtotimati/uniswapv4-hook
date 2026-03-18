@@ -1,3 +1,8 @@
+
+YieldPilot (formerly IdleLiquidityHook)
+
+Maximizing LP capital efficiency in Uniswap v4 by automatically deploying idle liquidity into yield strategies.
+
 🚨 Problem
 
 In traditional AMMs:
