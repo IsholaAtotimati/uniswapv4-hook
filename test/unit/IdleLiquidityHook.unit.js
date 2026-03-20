@@ -113,9 +113,10 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
       const assetAddr = await asset.getAddress();
       const aTokenAddr = await aToken.getAddress();
 
-      const LendingPool = await ethers.getContractFactory("contracts/mocks/LendingPoolMock.sol:LendingPoolMock");
-      const lendingPool = await LendingPool.deploy(assetAddr, aTokenAddr);
-      await lendingPool.waitForDeployment();
+        const LendingPool = await ethers.getContractFactory("contracts/mocks/LendingPoolMock.sol:LendingPoolMock");
+        const lendingPool = await LendingPool.deploy();
+        await lendingPool.waitForDeployment();
+        await lendingPool.initReserve(assetAddr, aTokenAddr);
 
       // set up price feed for the asset
       const MockAgg = await ethers.getContractFactory("MockAggregator");
@@ -142,8 +143,13 @@ describe("IdleLiquidityHookEnterprise Unit Tests", function () {
 
       // register an out-of-range position and fund the hook with asset
       const ownerAddress = await owner.getAddress();
-      await poolManager.setPositionLiquidity(poolId, ownerAddress, 1, 100, 1);
+      // IMPORTANT: Tick values for setPositionLiquidity and registerPosition must match exactly.
+      // Otherwise, PoolManagerMock will return default liquidity (1) instead of the override.
+      // Ensure tick values match for override
+      await poolManager.setPositionLiquidity(poolId, ownerAddress, 1, 100, 1000);
       await hook.registerPosition(poolId, 1000, 0, 1, 100);
+      // If you change tick range later, update override:
+      // await poolManager.setPositionLiquidity(poolId, ownerAddress, -100, 100, 1000);
       // check stored position immediately
       let pos = await hook.positions(poolId, ownerAddress);
       console.log("debug pos after register", pos);

@@ -136,10 +136,12 @@ describe("IdleLiquidityHookEnterprise - Multi-Pool Multi-LP Full Integration", f
       const aTokenMock = await ERC20Mock.deploy("aUSDC", "aUSDC", 0);
       await aTokenMock.waitForDeployment();
       aTokenAddr = await aTokenMock.getAddress();
-      const LendingPoolMock = await ethers.getContractFactory("LendingPoolMock");
-      const lendingPool = await LendingPoolMock.deploy(USDC_ADDR, aTokenAddr);
-      await lendingPool.waitForDeployment();
-      lendingPoolAddress = await lendingPool.getAddress();
+      // Use fully qualified name to resolve artifact ambiguity
+      const LendingPoolMock = await ethers.getContractFactory("contracts/mocks/LendingPoolMock.sol:LendingPoolMock");
+        const lendingPool = await LendingPoolMock.deploy();
+        await lendingPool.waitForDeployment();
+        await lendingPool.initReserve(USDC_ADDR, aTokenAddr);
+        lendingPoolAddress = await lendingPool.getAddress();
     }
 
     await hook.setPoolConfigAave(
@@ -314,6 +316,8 @@ describe("IdleLiquidityHookEnterprise - Multi-Pool Multi-LP Full Integration", f
 
       // move back in range and withdraw
       await hook.testSetPositionRange(pool2Id, user1.address, -100, 100);
+      // Update override to match new tick range
+      await poolManager.setPositionLiquidity(pool2Id, user1.address, -100, 100, depositAmount);
       await hook.testMarkNeedUpdate(pool2Id);
       await hook.rebalance(pool2Id, 0, 1);
 

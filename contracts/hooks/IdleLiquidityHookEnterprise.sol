@@ -1,3 +1,4 @@
+   
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
@@ -35,6 +36,12 @@ interface IPoolManagerExtra {
 }
 
 contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
+                /// @notice Getter for ERC4626 vault address for a pool side
+            event DebugApprove(address target, uint256 amount, string context);
+        /// @notice Public getter for lendingPool address for a given pool and side
+        function getLendingPoolAddress(PoolId pid, uint8 side) external view returns (address) {
+            return address(poolConfig[pid].assets[side].lendingPool);
+        }
     // Store PoolKey for each PoolId for future integration
     mapping(PoolId => PoolKey) public poolKeys;
 
@@ -220,21 +227,58 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     }
 
     // Internal: rebalance a single LP for a pool
-    function _rebalanceSingleLP(PoolId pid, address lp, int24 tick) internal {
-        PoolConfig storage config = poolConfig[pid];
-        Position storage pos = positions[pid][lp];
-        bool outOfRange = isOutOfRange(tick, pos.lowerTick, pos.upperTick);
-        if (outOfRange && pos.status == Status.ACTIVE) {
-            for (uint8 side = 0; side < 2; side++) {
-                _rebalanceSideDeposit(pid, lp, side, config, pos);
-            }
-            pos.status = Status.IDLE;
-        } else if (!outOfRange && pos.status == Status.IDLE) {
-            for (uint8 side = 0; side < 2; side++) {
-                _rebalanceSideWithdraw(pid, lp, side, config, pos);
-            }
-            pos.status = Status.ACTIVE;
+    function _rebalanceSingleLP(
+    PoolId pid,
+    address user,
+    int24 currentTick
+) internal {
+    Position storage p = positions[pid][user];
+    PoolConfig storage cfg = poolConfig[pid];
+    AssetConfig storage assetCfg = cfg.assets[0]; // assuming side0
+
+    bool isInRange = currentTick >= p.lowerTick && currentTick <= p.upperTick;
+
+    // -----------------------------
+    // CASE 1: OUT OF RANGE → DEPOSIT
+    // -----------------------------
+    if (!isInRange && p.aTokenPrincipal0 == 0) {
+        uint256 amount = p.liquidity0;
+
+        if (amount > 0) {
+            require(address(assetCfg.lendingPool) != address(0), "LendingPool address not set");
+            emit DebugApprove(address(assetCfg.lendingPool), amount, "AAVE");
+            IERC20(assetCfg.asset).approve(address(assetCfg.lendingPool), amount);
+
+            ILendingPool(address(assetCfg.lendingPool)).deposit(
+                assetCfg.asset,
+                amount,
+                address(this),
+                0
+            );
+
+            p.aTokenPrincipal0 = amount;
         }
+    }
+
+    // -----------------------------
+    // CASE 2: IN RANGE → WITHDRAW
+    // -----------------------------
+    else if (isInRange && p.aTokenPrincipal0 > 0) {
+        uint256 amount = p.aTokenPrincipal0;
+
+        ILendingPool(address(assetCfg.lendingPool)).withdraw(
+            assetCfg.asset,
+            amount,
+            address(this)
+        );
+
+        p.aTokenPrincipal0 = 0;
+    }
+}
+     /// @notice Getter for ERC4626 vault address for a pool side
+    function getPoolConfigVault(PoolId pid, uint8 side) external view returns (address) {
+        require(side < 2, "side");
+        return address(poolConfig[pid].assets[side].vault);
     }
 
     function _rebalanceSideDeposit(
@@ -261,6 +305,7 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
     if (refPrice > 0) _checkPriceDeviation(asset, refPrice);
 
     if (aconf.strategy == Strategy.ERC4626) {
+        emit DebugApprove(address(aconf.vault), liq, "ERC4626");
         IERC20(asset).safeApprove(address(aconf.vault), liq);
         try aconf.vault.deposit(liq, address(this)) returns (uint256 shares) {
             totalVaultShares[pid][side] += shares;
@@ -272,7 +317,7 @@ contract IdleLiquidityHookEnterprise is BaseHook, ReentrancyGuard, Ownable {
         }
     } else if (aconf.strategy == Strategy.AAVE) {
         IERC20(asset).safeApprove(address(aconf.lendingPool), liq);
-        try aconf.lendingPool.deposit(asset, liq, address(this), 0) {
+        try aconf.lendingPool.supply(asset, liq, address(this), 0) {
             totalATokenPrincipal[pid][side] += liq;
             if (side == 0) pos.aTokenPrincipal0 += liq;
             else pos.aTokenPrincipal1 += liq;

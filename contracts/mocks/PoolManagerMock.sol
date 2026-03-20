@@ -4,6 +4,10 @@ pragma solidity ^0.8.26;
 import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 contract PoolManagerMock {
+    int24 public testTick = 0;
+    function setTestTick(int24 tick) external {
+        testTick = tick;
+    }
     // Minimal function to satisfy IdleLiquidityHookEnterprise constructor
     address public lastPool;
 
@@ -49,14 +53,21 @@ contract PoolManagerMock {
     }
 
     // Minimal extsload implementation for StateLibrary.getSlot0
-    function extsload(bytes32) external pure returns (bytes32) {
-        // Return dummy slot0 data: sqrtPriceX96=1, tick=0, protocolFee=0, lpFee=0
+    function extsload(bytes32) external view returns (bytes32) {
+        // Return dummy slot0 data: sqrtPriceX96=1, tick=testTick, protocolFee=0, lpFee=0
         // Layout: [lpFee|protocolFee|tick|sqrtPriceX96]
         // sqrtPriceX96 (160 bits) = 1
-        // tick (24 bits) = 0
+        // tick (24 bits, signed) = testTick
         // protocolFee (24 bits) = 0
         // lpFee (24 bits) = 0
-        return bytes32(uint256(1));
+        int24 tick = testTick;
+        uint256 packedTick;
+        assembly {
+            // sign-extend int24 to 32 bits, then mask to 24 bits
+            packedTick := and(tick, 0xFFFFFF)
+        }
+        // Place tick at bits 160..183
+        return bytes32(uint256(1) | (packedTick << 160));
     }
 
     // Overload used by StateLibrary.getPositionInfo which needs multiple words

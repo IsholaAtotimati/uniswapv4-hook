@@ -102,3 +102,4 @@ task("full-test", "Runs all unit, fuzz, integration tests and gas reports").setA
 );
 
 module.exports = config;
+
